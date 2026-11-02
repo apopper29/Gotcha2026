@@ -46,7 +46,16 @@ final class GameService {
             throw error
         }
     }
-    
+
+    // Send the player's latest coordinates to the existing backend.
+    func updateLocation(latitude: Double, longitude: Double) async throws {
+        _ = try await functions
+            .httpsCallable("getProfile")
+            .call([
+                "location": [latitude, longitude]
+            ])
+    }
+
     func tagOut() async throws {
         _ = try await functions
             .httpsCallable("tagOut")
