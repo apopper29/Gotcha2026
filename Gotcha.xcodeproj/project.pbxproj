@@ -56,6 +56,11 @@
 			path = Gotcha;
 			sourceTree = "<group>";
 		};
+		8D4A9000307FE74F0080AB2C /* GotchaUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = GotchaUITests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -99,6 +104,7 @@
 			isa = PBXGroup;
 			children = (
 				F2EC1B9D2F07171F006F54C9 /* Gotcha */,
+				8D4A9000307FE74F0080AB2C /* GotchaUITests */,
 				8D4A8815307FE74F0080AB2C /* Frameworks */,
 				F2EC1B9C2F07171F006F54C9 /* Products */,
 			);
@@ -176,6 +182,9 @@
 			);
 			dependencies = (
 				F2EC1BB62F071721006F54C9 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				8D4A9000307FE74F0080AB2C /* GotchaUITests */,
 			);
 			name = GotchaUITests;
 			packageProductDependencies = (
@@ -428,14 +437,13 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Gotcha/Info.plist;
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Gotcha uses background location tracking to keep your game location updated.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Gotcha uses your location to identify your building during gameplay.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Gotcha uses your location to tell which campus building you're in, for check-ins and so your chaser can find you.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.6;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -464,14 +472,13 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Gotcha/Info.plist;
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Gotcha uses background location tracking to keep your game location updated.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Gotcha uses your location to identify your building during gameplay.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Gotcha uses your location to tell which campus building you're in, for check-ins and so your chaser can find you.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.6;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

@@ -1,84 +1,62 @@
-
 //
 //  GotchaApp.swift
 //  Gotcha
 //
 
-import SwiftUI
-import FirebaseCore
 import FirebaseAuth
+import FirebaseCore
 import FirebaseFunctions
-import FirebaseFirestore
 import GoogleSignIn
-import Combine
+import SwiftUI
 
 @main
 struct GotchaApp: App {
-    @StateObject private var authManager = AuthManager()
-    @StateObject private var locationManager = LocationManager()
-    private let gameService = GameService()
+    @StateObject private var authManager: AuthManager
+    @StateObject private var store: GameStore
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         FirebaseApp.configure()
 
         #if DEBUG
-        // Connect Firebase Authentication to the local emulator
-        Auth.auth().useEmulator(
-            withHost: "127.0.0.1",
-            port: 9099
-        )
-
-        Functions.functions().useEmulator(
-            withHost: "127.0.0.1",
-            port: 5001
-        )
-
-        // Connect Cloud Firestore to the local emulator
-        let db = Firestore.firestore()
-        let settings = db.settings
-        settings.host = "127.0.0.1:8080"
-        settings.isSSLEnabled = false
-        db.settings = settings
+        // The local Firebase emulators (see firebase.json). The app only uses Auth and Functions;
+        // Firestore is locked to clients. On a real phone, set GOTCHA_EMULATOR_HOST to the
+        // Mac's LAN address in the scheme's environment variables.
+        let host = ProcessInfo.processInfo.environment["GOTCHA_EMULATOR_HOST"] ?? "127.0.0.1"
+        Auth.auth().useEmulator(withHost: host, port: 9099)
+        Functions.functions(region: Callables.region).useEmulator(withHost: host, port: 5001)
         #endif
+
+        // created after Firebase is configured
+        _authManager = StateObject(wrappedValue: AuthManager())
+        _store = StateObject(wrappedValue: GameStore())
     }
 
     var body: some Scene {
         WindowGroup {
             Group {
                 if authManager.isLoading {
-                    ProgressView("Loading Gotcha...")
-                } else if authManager.user != nil {
+                    GotchaLoader()
+                } else if let user = authManager.user {
                     ContentView()
+                        .task(id: user.uid) { await store.start(uid: user.uid) }
                 } else {
                     LoginView()
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Theme.Colors.background)
+            .foregroundStyle(Theme.Colors.text)
+            .preferredColorScheme(.dark)
             .environmentObject(authManager)
-            .environmentObject(locationManager)
-            .onAppear {
-                if authManager.user != nil {
-                    locationManager.startTracking()
-                }
+            .environmentObject(store)
+            .onChange(of: authManager.user?.uid) { _, newUID in
+                if newUID == nil { store.signOut() }
             }
-            .onChange(of: authManager.user?.uid) { oldUserID, newUserID in
-                if newUserID != nil {
-                    locationManager.startTracking()
-                } else {
-                    locationManager.stopTracking()
-                }
-            }
-            .onReceive(locationManager.$location.compactMap { $0 }) { location in
-                Task {
-                    do {
-                        try await gameService.updateLocation(
-                            latitude: location.coordinate.latitude,
-                            longitude: location.coordinate.longitude
-                        )
-
-                        print("Location sent to Firebase successfully.")
-                    } catch {
-                        print("Failed to send location:", error.localizedDescription)
-                    }
+            .onChange(of: scenePhase) { _, phase in
+                // back in the app: refresh anything that's gone stale
+                if phase == .active, authManager.user != nil {
+                    Task { await store.refresh() }
                 }
             }
             .onOpenURL { url in

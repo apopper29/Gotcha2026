@@ -2,106 +2,101 @@
 //  LocationManager.swift
 //  Gotcha
 //
-//  Created on 11/1/26.
+//  Gets one location fix when the app needs it (like the website's getCurrentPosition).
+//  No background tracking: the server only needs the player's building when they open
+//  the app or tap "check in".
 //
 
-
-import Foundation
 import CoreLocation
-import Combine
+import Foundation
 
-@MainActor
-final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
+enum LocationError: LocalizedError {
+    case denied
+    case unavailable
 
-    private let manager = CLLocationManager()
-
-    @Published var location: CLLocation?
-    @Published var authorizationStatus: CLAuthorizationStatus
-
-    @Published var errorMessage: String?
-
-    override init() {
-        authorizationStatus = manager.authorizationStatus
-
-        super.init()
-
-        manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyBest
-        manager.distanceFilter = 10
-        manager.pausesLocationUpdatesAutomatically = true
-
-        // Allow location updates while the app is in the background.
-        manager.allowsBackgroundLocationUpdates = true
+    var errorDescription: String? {
+        switch self {
+        case .denied: "Location access is off for Gotcha."
+        case .unavailable: "Couldn't find your location."
+        }
     }
+}
 
-    // MARK: - Permissions
+final class LocationManager {
+    /// A fix this accurate ends the search right away (meters)
+    private nonisolated static let goodEnoughAccuracy: CLLocationAccuracy = 65
+    /// Fixes less accurate than this are ignored
+    private nonisolated static let worstAccuracy: CLLocationAccuracy = 150
 
-    func requestPermission() {
-        manager.requestAlwaysAuthorization()
-    }
-
-    // MARK: - Tracking
-
-    func startTracking() {
-        guard manager.authorizationStatus == .authorizedAlways ||
-              manager.authorizationStatus == .authorizedWhenInUse else {
-            requestPermission()
-            return
+    /// One location fix.
+    /// - Parameters:
+    ///   - maxAge: a recent fix this old or newer is used as is (the first attempt allows 60s;
+    ///     a retry wants a fresh one, since they've probably moved)
+    ///   - timeout: after this long, use the best fix so far or fail
+    func currentLocation(maxAge: TimeInterval, timeout: TimeInterval = 10) async throws -> CLLocation {
+        if maxAge > 0,
+           let recent = CLLocationManager().location,
+           -recent.timestamp.timeIntervalSinceNow <= maxAge,
+           Self.isUsable(recent) {
+            return recent
         }
 
-        manager.startUpdatingLocation()
-    }
+        // holds when-in-use permission (and asks for it the first time) while we look
+        let session = CLServiceSession(authorization: .whenInUse)
+        defer { session.invalidate() }
 
-    func stopTracking() {
-        manager.stopUpdatingLocation()
-    }
+        // the first time, give them as long as they need to answer the permission prompt;
+        // the timeout is only for finding them
+        if CLLocationManager().authorizationStatus == .notDetermined {
+            try await Self.waitForPermissionAnswer()
+        }
 
-    // MARK: - Authorization Changes
-
-    func locationManagerDidChangeAuthorization(
-        _ manager: CLLocationManager
-    ) {
-        authorizationStatus = manager.authorizationStatus
-
-        if manager.authorizationStatus == .authorizedAlways ||
-           manager.authorizationStatus == .authorizedWhenInUse {
-
-            manager.startUpdatingLocation()
+        return try await withThrowingTaskGroup(of: CLLocation?.self) { group in
+            group.addTask { try await Self.searchForFix(until: timeout) }
+            guard let location = try await group.next() ?? nil else {
+                throw LocationError.unavailable
+            }
+            return location
         }
     }
 
-    // MARK: - Location Updates
-
-    func locationManager(
-        _ manager: CLLocationManager,
-        didUpdateLocations locations: [CLLocation]
-    ) {
-        guard let newLocation = locations.last else {
-            return
+    private nonisolated static func waitForPermissionAnswer() async throws {
+        for try await update in CLLocationUpdate.liveUpdates() {
+            if update.authorizationDenied || update.authorizationDeniedGlobally { throw LocationError.denied }
+            if !update.authorizationRequestInProgress { return }
         }
-
-        // Reject invalid or inaccurate GPS readings.
-        guard newLocation.horizontalAccuracy >= 0,
-              newLocation.horizontalAccuracy <= 50 else {
-            return
-        }
-
-        location = newLocation
-        errorMessage = nil
-
-        print("New location:")
-        print("Latitude: \(newLocation.coordinate.latitude)")
-        print("Longitude: \(newLocation.coordinate.longitude)")
-        print("Accuracy: \(newLocation.horizontalAccuracy)m")
     }
 
-    // MARK: - Errors
+    /// Takes live updates until one is good enough, or returns the best one when time runs out
+    private nonisolated static func searchForFix(until timeout: TimeInterval) async throws -> CLLocation? {
+        let deadline = Date().addingTimeInterval(timeout)
+        var best: CLLocation?
 
-    func locationManager(
-        _ manager: CLLocationManager,
-        didFailWithError error: Error
-    ) {
-        errorMessage = error.localizedDescription
-        print("Location error:", error.localizedDescription)
+        let updates = CLLocationUpdate.liveUpdates()
+        return try await withThrowingTaskGroup(of: CLLocation?.self) { group in
+            group.addTask {
+                for try await update in updates {
+                    if update.authorizationDenied || update.authorizationDeniedGlobally {
+                        throw LocationError.denied
+                    }
+                    guard let location = update.location, isUsable(location) else { continue }
+                    if location.horizontalAccuracy <= goodEnoughAccuracy { return location }
+                    if Date() >= deadline { return location }
+                }
+                return nil
+            }
+            group.addTask {
+                try await Task.sleep(for: .seconds(timeout))
+                return nil
+            }
+            defer { group.cancelAll() }
+            // the first result decides: a fix, a denial, or the timeout (nil)
+            best = try await group.next() ?? nil
+            return best
+        }
+    }
+
+    private nonisolated static func isUsable(_ location: CLLocation) -> Bool {
+        location.horizontalAccuracy >= 0 && location.horizontalAccuracy <= worstAccuracy
     }
 }

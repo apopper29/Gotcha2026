@@ -5,12 +5,15 @@
 //  Created on 10/17/26.
 //
 
-import Foundation
-import FirebaseAuth
 import Combine
+import FirebaseAuth
+import Foundation
+import GoogleSignIn
 
 @MainActor
 final class AuthManager: ObservableObject {
+    static let schoolDomain = "milton.edu"
+
     @Published var user: User?
     @Published var isLoading = true
     @Published var errorMessage: String?
@@ -18,20 +21,26 @@ final class AuthManager: ObservableObject {
     private var listener: AuthStateDidChangeListenerHandle?
 
     init() {
-        listener = Auth.auth().addStateDidChangeListener {
-            [weak self] _, user in
-
+        listener = Auth.auth().addStateDidChangeListener { [weak self] _, user in
             Task { @MainActor in
-                self?.user = user
-                self?.isLoading = false
+                guard let self else { return }
+                // only school accounts can play (the website sends anyone else back to sign in)
+                if let user, !(user.email?.lowercased().hasSuffix("@\(Self.schoolDomain)") ?? false) {
+                    self.errorMessage = Copy.Landing.schoolAccountOnly
+                    self.signOut(keepingError: true)
+                    return
+                }
+                self.user = user
+                self.isLoading = false
             }
         }
     }
 
-    func signOut() {
+    func signOut(keepingError: Bool = false) {
         do {
             try Auth.auth().signOut()
-            errorMessage = nil
+            GIDSignIn.sharedInstance.signOut()
+            if !keepingError { errorMessage = nil }
         } catch {
             errorMessage = "Unable to sign out. Please try again."
         }

@@ -5,13 +5,12 @@
 //  Created on 10/17/26.
 //
 
-
-import Foundation
-import UIKit
 import Combine
-import FirebaseCore
 import FirebaseAuth
+import FirebaseCore
+import Foundation
 import GoogleSignIn
+import UIKit
 
 @MainActor
 final class GoogleSignInManager: ObservableObject {
@@ -29,17 +28,23 @@ final class GoogleSignInManager: ObservableObject {
         isSigningIn = true
         errorMessage = nil
 
-        GIDSignIn.sharedInstance.configuration =
-            GIDConfiguration(clientID: clientID)
+        // hostedDomain makes Google offer school accounts first
+        GIDSignIn.sharedInstance.configuration = GIDConfiguration(
+            clientID: clientID,
+            serverClientID: nil,
+            hostedDomain: AuthManager.schoolDomain,
+            openIDRealm: nil
+        )
 
-        GIDSignIn.sharedInstance.signIn(
-            withPresenting: viewController
-        ) { [weak self] result, error in
+        GIDSignIn.sharedInstance.signIn(withPresenting: viewController) { [weak self] result, error in
             Task { @MainActor in
                 guard let self else { return }
 
                 if let error {
-                    self.errorMessage = error.localizedDescription
+                    // closing the Google sheet isn't an error worth showing
+                    if (error as NSError).code != GIDSignInError.canceled.rawValue {
+                        self.errorMessage = error.localizedDescription
+                    }
                     self.isSigningIn = false
                     return
                 }
@@ -55,16 +60,48 @@ final class GoogleSignInManager: ObservableObject {
                     withIDToken: idToken,
                     accessToken: googleUser.accessToken.tokenString
                 )
-
-                do {
-                    try await Auth.auth().signIn(with: credential)
-                    // AuthManager observes this change automatically.
-                } catch {
-                    self.errorMessage = error.localizedDescription
-                }
-
-                self.isSigningIn = false
+                await self.signIn(with: credential)
             }
         }
+    }
+
+    #if DEBUG
+    /// Signs in to the Auth emulator as any roster email, like the emulator's Google popup on
+    /// the website. The emulator accepts an unsigned Google ID token, so no real account is used.
+    func signInToEmulator(email: String) {
+        guard !isSigningIn else { return }
+        let email = email.trimmingCharacters(in: .whitespaces).lowercased()
+        let claims: [String: Any] = [
+            "sub": "emulator-\(email)",
+            "email": email,
+            "email_verified": true,
+            "name": email.components(separatedBy: "@").first ?? email,
+        ]
+        let base64url = { (data: Data) in
+            data.base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-")
+                .replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: "=", with: "")
+        }
+        guard let header = try? JSONSerialization.data(withJSONObject: ["alg": "none", "typ": "JWT"]),
+              let payload = try? JSONSerialization.data(withJSONObject: claims) else { return }
+        let token = "\(base64url(header)).\(base64url(payload))."
+
+        isSigningIn = true
+        errorMessage = nil
+        Task {
+            await signIn(with: GoogleAuthProvider.credential(withIDToken: token, accessToken: ""))
+        }
+    }
+    #endif
+
+    private func signIn(with credential: AuthCredential) async {
+        do {
+            try await Auth.auth().signIn(with: credential)
+            // AuthManager sees the change on its own
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isSigningIn = false
     }
 }

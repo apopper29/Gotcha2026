@@ -2,75 +2,83 @@
 //  GameService.swift
 //  Gotcha
 //
-//  Created on 10/5/26.
+//  Calls the Cloud Functions. Names, regions and request/response types come from the
+//  generated Callables (Generated/Callables.swift), so this file never spells them out.
 //
 
 import FirebaseFunctions
 import Foundation
 
 final class GameService {
-    private let functions = Functions.functions()
-    
-    
-    func getProfile() async throws -> Profile {
-        let result = try await functions
-            .httpsCallable("getProfile")
-            .call([:] as [String: Any])
+    private let functions: Functions
 
-        guard let data = result.data as? [String: Any] else {
-            print("getProfile returned unexpected data:", result.data)
-            throw GameError.invalidResponse
-        }
+    init(functions: Functions = Functions.functions(region: Callables.region)) {
+        self.functions = functions
+    }
 
-        // Existing profiles return { "profile": {...} }.
-        // New profiles return the profile object directly.
-        let profileData: Any
-        if let wrappedProfile = data["profile"] {
-            profileData = wrappedProfile
-        } else {
-            profileData = data
-        }
-
-        guard JSONSerialization.isValidJSONObject(profileData) else {
-            print("Invalid profile JSON:", profileData)
-            throw GameError.invalidResponse
-        }
-
-        let jsonData = try JSONSerialization.data(withJSONObject: profileData)
-
+    func call<Request, Response>(
+        _ callable: Callable<Request, Response>,
+        _ request: Request
+    ) async throws -> Response {
+        let payload = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request))
         do {
-            return try JSONDecoder().decode(Profile.self, from: jsonData)
+            let result = try await functions.httpsCallable(callable.name).call(payload)
+            let json = try JSONSerialization.data(
+                withJSONObject: result.data,
+                options: [.fragmentsAllowed]
+            )
+            return try JSONDecoder().decode(Response.self, from: json)
+        } catch let error as DecodingError {
+            print("\(callable.name) returned data the app doesn't understand:", error)
+            throw GameError.invalidResponse
         } catch {
-            print("Could not decode Profile:", error)
-            print("Profile response:", String(data: jsonData, encoding: .utf8) ?? "<unreadable>")
-            throw error
+            throw GameError(error)
         }
     }
 
-    // Send the player's latest coordinates to the existing backend.
-    func updateLocation(latitude: Double, longitude: Double) async throws {
-        _ = try await functions
-            .httpsCallable("getProfile")
-            .call([
-                "location": [latitude, longitude]
-            ])
+    func call<Response>(_ callable: Callable<EmptyRequest, Response>) async throws -> Response {
+        try await call(callable, EmptyRequest())
     }
-
-    func tagOut() async throws {
-        _ = try await functions
-            .httpsCallable("tagOut")
-            .call([:] as [String: Any])
-    }
-
 }
 
-enum GameError: LocalizedError {
+enum GameError: LocalizedError, Equatable {
     case invalidResponse
-    
+    /// An HttpsError from a function, e.g. "Gotcha hasn't started yet"
+    case server(code: FunctionsErrorCode, message: String)
+    case other(String)
+
+    init(_ error: Error) {
+        if let error = error as? GameError {
+            self = error
+            return
+        }
+        let nsError = error as NSError
+        if nsError.domain == FunctionsErrorDomain,
+           let code = FunctionsErrorCode(rawValue: nsError.code) {
+            self = .server(code: code, message: nsError.localizedDescription)
+        } else {
+            self = .other(error.localizedDescription)
+        }
+    }
+
+    var code: FunctionsErrorCode? {
+        if case .server(let code, _) = self { code } else { nil }
+    }
+
     var errorDescription: String? {
         switch self {
-        case .invalidResponse:
-            return "The server returned an invalid response."
+        case .invalidResponse: "The server returned an invalid response."
+        case .server(_, let message): message
+        case .other(let message): message
+        }
+    }
+
+    /// Network trouble, so cached data is still worth showing
+    var isOffline: Bool {
+        switch self {
+        case .server(let code, _): code == .unavailable || code == .deadlineExceeded
+        case .other: true
+        case .invalidResponse: false
         }
     }
 }
